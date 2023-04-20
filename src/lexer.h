@@ -1,6 +1,7 @@
 #ifndef LEXER_H_
 #define LEXER_H_
 #include <string>
+#include <map>
 
 // ---------------------- Lexer ---------------------
 enum Token {
@@ -16,30 +17,23 @@ enum Token {
     tok_ignored = -10,      // ignored
 };
 
-static std::string IdentifierStr;
-static double NumVal;
-
-
-static int gettok() {
-    static int LastChar = ' ';
-
-    // Skip any space.
-    while (isspace(LastChar))
-        LastChar = getchar();
-
-    if (isalpha(LastChar)) {
-        IdentifierStr = LastChar;
-        while (isalnum(LastChar = getchar())) {
-            IdentifierStr += LastChar;
-        }
-    }
-}
+std::map<std::string, Token> key_words = {{"print", tok_print}};
 
 
 class Lexer {
 public:
-    Lexer(std::string& source_code): source_code(source_code), line_num(0), cur(0) {}
+    Lexer(const std::string& source_code): source_code(source_code), line_num(1), cur(0) {}
     ~Lexer() {}
+
+    Token lookAhead();
+
+    void lookAheadAndSkip(Token token);
+
+    bool isLetter(char ch) { return std::isalpha(static_cast<unsigned char>(ch)); }
+    bool isNewLine(char ch) { return ch == '\r' || ch == '\n'; }
+    bool isWhiteSpace(char ch) { return ch =='\t' || ch == '\n' || ch == '\f' || ch == ' '; }
+    bool isIgnored();
+
 private:
     size_t line_num;
     std::string source_code;
