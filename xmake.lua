@@ -1,11 +1,10 @@
 add_rules("mode.debug", "mode.release")
 
-target("cpp")
+target("pineapple")
     set_kind("binary")
     add_files("src/*.cpp")
-    set_languages("c99", "c++20")
+    set_languages("c99", "cxx20")
     set_optimize("fastest")
-
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
 --
