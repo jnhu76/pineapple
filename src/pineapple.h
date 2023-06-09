@@ -1,6 +1,3 @@
-// CMakeProject1.h: 标准系统包含文件的包含文件
-// 或项目特定的包含文件。
-
 #pragma once
 
 #include <map>
@@ -13,50 +10,56 @@
 #include <sstream>
 #include <optional>
 #include <iostream>
+#include <stdexcept>
 
 
 // ------------------- Defintion ---------------------
 
 using Variable = std::tuple<std::size_t, std::string>;
 
-
 struct Statement {
 public:
-	Statement() = default;
-	Statement(std::size_t line_num, const std::string& name, Variable variable, std::size_t statement_type = 0)
-		: line_num(line_num), name(name), statement_type(statement_type), variable(std::move(variable)) {}
+	virtual ~Statement() = default;
 
-	std::size_t id() const { return statement_type; }
-
-	friend auto operator<=>(const Statement&, const Statement&) = default;
-
-	std::size_t statement_type{ 0 }; // 0 -> Assignment, 1 -> Print;
-	std::size_t line_num{1};
-	std::string name{""};
-	Variable variable{0, ""};
+	virtual std::size_t id() const = 0;
 };
 
+struct Assignment : public Statement {
+public:
+	
+	Assignment(std::size_t line_num, const std::string& name, Variable& variable):
+		line_num(line_num), name(name), variable(std::move(variable)) {}
 
-class SourceCode {
+	std::size_t id() const override { return 1;}
+
+	friend auto operator<=>(const Assignment&, const Assignment&) = default;
+
+	std::string name;
+	std::size_t line_num;
+	Variable variable;
+};
+
+struct Print : public Statement {
+public:
+	Print(std::size_t line_num, Variable& variable): line_num(line_num), variable(std::move(variable)) {}
+
+	std::size_t id() const override { return 2; }
+
+	friend auto operator<=>(const Print&, const Print&) = default;
+
+	std::size_t line_num;
+	Variable variable;
+};
+
+struct SourceCode {
 public:
 	SourceCode() = default;
-	SourceCode(std::size_t line_num, std::vector<Statement>& statements)
-		: line_num(line_num), statements(statements) {}
+	SourceCode(std::size_t line_num, std::vector<std::unique_ptr<Statement>> statements)
+		: line_num(line_num), statements(std::move(statements)) {}
 
-	void set_line_num(std::size_t _line_num) { line_num = _line_num; }
-	std::size_t get_line_num() const { return line_num; }
 
-	void add_statement(Statement statement) {
-		statements.emplace_back(std::move(statement));
-	}
-
-	std::vector<Statement> get_statements() {
-		return statements;
-	}
-
-private:
 	std::size_t line_num{ 0 };
-	std::vector<Statement> statements;
+	std::vector<std::unique_ptr<Statement>> statements;
 };
 
 // ------------------- Lexer ---------------------
@@ -106,9 +109,7 @@ std::ostream& operator<<(std::ostream& os, TokenType token_type) {
 
 std::map<std::string, TokenType> KEYWORDS {{"print", TokenType::TOKEN_PRINT} };
 
-
 using TokenInfo = std::tuple<std::size_t, TokenType, std::string>;
-
 
 
 class Lexer {
@@ -161,7 +162,6 @@ std::string Lexer::scan_name() {
 
 std::string Lexer::scan_ignored() {
 	const auto reg = std::regex("^^[\t\n\v\f\r ]+");
-	//const auto reg = std::regex("\s+");
 	return scan_pattern(reg);
 }
 
@@ -311,41 +311,52 @@ std::string parse_string(Lexer& lexer) {
 	return str;
 }
 
-Statement parse_statement(Lexer& lexer) {
-	Statement statement;
+std::unique_ptr<Statement> parse_assignment(Lexer& lexer) {
+	auto var = parse_variable(lexer);
+	parse_ignored(lexer);
+	lexer.next_token_is(TokenType::TOKEN_EQUAL);
+	parse_ignored(lexer);
+	auto str = parse_string(lexer);
+	parse_ignored(lexer);
 
-	auto is_print = lexer.look_ahead() == TokenType::TOKEN_PRINT ? true : false;
-	if (is_print) {
-		statement.statement_type = 1;
-		statement.line_num = std::get<std::size_t>(lexer.next_token_is(TokenType::TOKEN_PRINT));
-		lexer.next_token_is(TokenType::TOKEN_LEFT_PAREN);
-		parse_ignored(lexer);
-		statement.variable = parse_variable(lexer);
-		parse_ignored(lexer);
-		lexer.next_token_is(TokenType::TOKEN_RIGHT_PAREN);
-		parse_ignored(lexer);
+	std::unique_ptr<Statement> ptr = std::make_unique<Assignment>(std::get<0>(var), str, var);
+	return ptr;
+}
+
+std::unique_ptr<Statement> parse_print(Lexer& lexer) {
+	auto line_num = std::get<0>(lexer.next_token_is(TokenType::TOKEN_PRINT));
+	lexer.next_token_is(TokenType::TOKEN_LEFT_PAREN);
+	parse_ignored(lexer);
+	auto variable = parse_variable(lexer);
+	lexer.next_token_is(TokenType::TOKEN_RIGHT_PAREN);
+	parse_ignored(lexer);
+
+	std::unique_ptr<Statement> ptr = std::make_unique<Print>(line_num, variable);
+	return ptr;
+}
+
+
+std::unique_ptr<Statement> parse_statement(Lexer& lexer) {
+	switch (lexer.look_ahead()) {
+	case TokenType::TOKEN_PRINT:
+		return parse_print(lexer);
+	case TokenType::TOKEN_VAR_PREFIX:
+		return parse_assignment(lexer);
+	default:
+		throw new std::runtime_error("Statement type error.");
 	}
-	else {
-		statement.statement_type = 0;
-		statement.variable = parse_variable(lexer);
-		parse_ignored(lexer);
-		lexer.next_token_is(TokenType::TOKEN_EQUAL);
-		parse_ignored(lexer);
-		statement.name = parse_string(lexer);
-		parse_ignored(lexer);
-		statement.line_num = std::get<std::size_t>(statement.variable);
-	}
-	return statement;
 }
 
 SourceCode parse(Lexer& lexer) {
 	SourceCode sc;
 
-	sc.set_line_num(lexer.get_line_num());
+	sc.line_num = lexer.get_line_num();
+
 	auto next_type = lexer.look_ahead();
+
 	while (next_type != TokenType::TOKEN_EOF) {
 		if (next_type == TokenType::TOKEN_PRINT || next_type == TokenType::TOKEN_VAR_PREFIX)
-			sc.add_statement(parse_statement(lexer));
+			sc.statements.emplace_back(std::move(parse_statement(lexer)));
 		next_type = lexer.look_ahead();
 	}
 	return sc;
@@ -360,22 +371,29 @@ public:
 		ast = parse(lexer);
 	}
 
-	void resolve_print(Statement& print) {
-		auto name = std::get<std::string>(print.variable);
+	void resolve_print(std::unique_ptr<Statement> p) {
+		Print* ptr = dynamic_cast<Print*>(p.get());
+		auto name = std::get<std::string>(ptr->variable);
 		std::cout << variables[name];
 	}
 
-	void resolve_assigment(Statement& assignment) {
-		auto name = std::get<std::string>(assignment.variable);
-		variables[name] = assignment.name;
+	void resolve_assigment(std::unique_ptr<Statement> a) {
+		Assignment* ptr = dynamic_cast<Assignment*>(a.get());
+		auto name = std::get<std::string>(ptr->variable);
+		variables[name] = ptr->name;
 	}
 
 	void execute() {
-		for (auto& elem : ast.get_statements()) {
-			if (elem.id() == 1)
-				resolve_print(elem);
-			else
-				resolve_assigment(elem);
+		for (auto&& elem : ast.statements) {
+			if (elem->id() == 1) {
+				// Assignment
+				resolve_assigment(std::move(elem));
+			} else if (elem->id() == 2) {
+				// Print
+				resolve_print(std::move(elem));
+			} else {
+				throw new std::runtime_error("Interpreter ast error.");
+			}
 		}
 	}
 

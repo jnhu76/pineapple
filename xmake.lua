@@ -5,6 +5,7 @@ target("pineapple")
     add_files("src/*.cpp")
     set_languages("c99", "cxx20")
     set_optimize("fastest")
+    set_toolchains("clang")
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
 --
