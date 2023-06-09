@@ -7,7 +7,6 @@
 #include <optional>
 #include <regex>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -34,10 +33,8 @@ public:
 
     std::size_t id() const override { return 1; }
 
-    friend auto operator<=>(const Assignment&, const Assignment&) = default;
-
-    std::string name;
     std::size_t line_num;
+    std::string name;
     Variable variable;
 };
 
@@ -50,8 +47,6 @@ public:
     }
 
     std::size_t id() const override { return 2; }
-
-    friend auto operator<=>(const Print&, const Print&) = default;
 
     std::size_t line_num;
     Variable variable;
@@ -192,7 +187,7 @@ std::string Lexer::scan_before_token(const std::string& token)
 
 void Lexer::process_new_line(const std::string& ignored)
 {
-    auto i { 0 };
+    std::size_t i { 0 };
     while (i <= ignored.length()) {
         auto tmp_str = ignored.substr(i, 2);
         if (tmp_str == "\r\n" || tmp_str == "\n\r") {
@@ -353,7 +348,8 @@ std::unique_ptr<Statement> parse_statement(Lexer& lexer)
     case TokenType::TOKEN_VAR_PREFIX:
         return parse_assignment(lexer);
     default:
-        throw new std::runtime_error("Statement type error.");
+        std::cerr << "Statement type error.\n";
+        exit(1);
     }
 }
 
@@ -367,7 +363,7 @@ SourceCode parse(Lexer& lexer)
 
     while (next_type != TokenType::TOKEN_EOF) {
         if (next_type == TokenType::TOKEN_PRINT || next_type == TokenType::TOKEN_VAR_PREFIX)
-            sc.statements.emplace_back(std::move(parse_statement(lexer)));
+            sc.statements.emplace_back(parse_statement(lexer));
         next_type = lexer.look_ahead();
     }
     return sc;
@@ -408,7 +404,8 @@ public:
                 // Print
                 resolve_print(std::move(elem));
             } else {
-                throw new std::runtime_error("Interpreter ast error.");
+                std::cerr << "Interpreter ast error.\n";
+                exit(1);
             }
         }
     }

@@ -19,6 +19,5 @@ int main(int argc, char** argv)
     Interpreter i(s);
     i.execute();
 
-    // std::cout << s;
     return 0;
 }
