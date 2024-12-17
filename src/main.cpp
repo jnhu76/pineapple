@@ -8,13 +8,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  std::string_view file = argv[1];
-
-  auto data = read_file(file);
-
-  Interpreter i(data);
-
-  i.execute();
+  PineApple::run(argv[1]);
 
   return 0;
 }

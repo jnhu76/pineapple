@@ -1,4 +1,5 @@
-#pragma once
+#ifndef PINEAPPLE_H_
+#define PINEAPPLE_H_
 
 #include <array>
 #include <cstdint>
@@ -13,53 +14,113 @@
 #include <string_view>
 #include <tuple>
 #include <vector>
+#include <variant>
 
-// ------------------- Defintion ---------------------
+namespace PineApple {
 
-using Variable = std::tuple<std::size_t, std::string>;
 
-struct Statement {
+// -----------------------------------------------
+// ------------------- Utils ---------------------
+// -----------------------------------------------
+
+auto read_file(std::string_view path) -> std::string {
+  constexpr auto read_size = std::size_t(4096);
+  auto stream = std::ifstream(path.data());
+  stream.exceptions(std::ios_base::badbit);
+
+  if (not stream) {
+    throw std::ios_base::failure("file does not exist");
+  }
+
+  auto out = std::string();
+  auto buf = std::string(read_size, '\0');
+  while (stream.read(&buf[0], read_size)) {
+    out.append(buf, 0, stream.gcount());
+  }
+  out.append(buf, 0, stream.gcount());
+  return out;
+}
+
+class InterpreterError : public std::runtime_error {
 public:
-  virtual ~Statement() = default;
-
-  virtual std::size_t id() const = 0;
+    explicit InterpreterError(const std::string& message) 
+        : std::runtime_error(message) {}
 };
 
-struct Assignment : public Statement {
-public:
-  Assignment(std::size_t line_num, const std::string &name, Variable &variable)
-      : line_num(line_num), name(name), variable(std::move(variable)) {}
+// -----------------------------------------------
+// ------------------- Defintion -----------------
+// -----------------------------------------------
+using Variable = std::tuple<std::size_t, std::string>;
 
-  std::size_t id() const override { return 1; }
+// struct Statement {
+// public:
+//   virtual ~Statement() = default;
 
+//   virtual std::size_t id() const = 0;
+// };
+
+// struct Assignment : public Statement {
+// public:
+//   Assignment(std::size_t line_num, const std::string &name, Variable &variable)
+//       : line_num(line_num), name(name), variable(std::move(variable)) {}
+
+//   std::size_t id() const override { return 1; }
+
+//   std::size_t line_num;
+//   std::string name;
+//   Variable variable;
+// };
+
+// struct Print : public Statement {
+// public:
+//   Print(std::size_t line_num, Variable &variable)
+//       : line_num(line_num), variable(std::move(variable)) {}
+
+//   std::size_t id() const override { return 2; }
+
+//   std::size_t line_num;
+//   Variable variable;
+// };
+
+struct Assignment {
   std::size_t line_num;
   std::string name;
   Variable variable;
 };
 
-struct Print : public Statement {
-public:
-  Print(std::size_t line_num, Variable &variable)
-      : line_num(line_num), variable(std::move(variable)) {}
-
-  std::size_t id() const override { return 2; }
-
+struct Print {
   std::size_t line_num;
   Variable variable;
+
 };
+
+using Statement = std::variant<Assignment, Print>;
+
+// struct SourceCode {
+// public:
+//   SourceCode() = default;
+//   SourceCode(std::size_t line_num,
+//              std::vector<std::unique_ptr<Statement>> statements)
+//       : line_num(line_num), statements(std::move(statements)) {}
+
+//   std::size_t line_num{0};
+//   std::vector<std::unique_ptr<Statement>> statements;
+// };
 
 struct SourceCode {
-public:
-  SourceCode() = default;
-  SourceCode(std::size_t line_num,
-             std::vector<std::unique_ptr<Statement>> statements)
-      : line_num(line_num), statements(std::move(statements)) {}
+  std::size_t line_num {0};
+  std::vector<Statement> statements;
 
-  std::size_t line_num{0};
-  std::vector<std::unique_ptr<Statement>> statements;
+  SourceCode() = default;
+  explicit SourceCode(std::size_t line_num, std::vector<Statement> statements = {})
+    : line_num(line_num), statements(std::move(statements)) {}
+
+  void add_statement(Statement stmt) { statements.push_back(std::move(stmt)); }
 };
 
+// -----------------------------------------------
 // ------------------- Lexer ---------------------
+// -----------------------------------------------
 
 enum class TokenType : std::uint16_t {
   TOKEN_EOF = 0,
@@ -115,6 +176,33 @@ std::ostream &operator<<(std::ostream &os, TokenType token_type) {
   }
 }
 
+std::string to_string(TokenType token_type) {
+    switch (token_type) {
+    case TokenType::TOKEN_EOF:
+        return token_str::TOKEN_EOF;
+    case TokenType::TOKEN_VAR_PREFIX:
+        return token_str::TOKEN_VAR_PREFIX;  
+    case TokenType::TOKEN_LEFT_PAREN:
+        return token_str::TOKEN_LEFT_PAREN;
+    case TokenType::TOKEN_RIGHT_PAREN:
+        return token_str::TOKEN_RIGHT_PAREN;
+    case TokenType::TOKEN_EQUAL:
+        return token_str::TOKEN_EQUAL;
+    case TokenType::TOKEN_QUOTE:
+        return token_str::TOKEN_QUOTE;
+    case TokenType::TOKEN_DUOQUOTE:
+        return token_str::TOKEN_DUOQUOTE;
+    case TokenType::TOKEN_NAME:
+        return token_str::TOKEN_NAME;
+    case TokenType::TOKEN_PRINT:
+        return token_str::TOKEN_PRINT;
+    case TokenType::TOKEN_IGNORED:
+        return token_str::TOKEN_IGNORED;
+    default:
+        return std::to_string(static_cast<std::uint16_t>(token_type));
+    }
+}
+
 std::map<std::string, TokenType> KEYWORDS{{"print", TokenType::TOKEN_PRINT}};
 
 using TokenInfo = std::tuple<std::size_t, TokenType, std::string>;
@@ -126,6 +214,7 @@ public:
 
   bool next_source_code_is(const std::string &prefix);
   std::size_t get_line_num() const { return line_num; }
+  std::size_t get_currnet() const { return current; }
   bool finished() { return current >= source_code.length(); }
 
   std::string scan_pattern(const std::regex pattern);
@@ -156,8 +245,8 @@ std::string Lexer::scan_pattern(const std::regex pattern) {
   if (std::regex_search(str, base_match, pattern))
     if (base_match.length() >= 1)
       return base_match[0];
-  std::cerr << "Regex Error\n";
-  exit(1);
+  
+  throw InterpreterError("Regex Error: " + str);
 }
 
 std::string Lexer::scan_name() {
@@ -174,8 +263,7 @@ std::string Lexer::scan_before_token(const std::string &token) {
   auto str = source_code.substr(current);
   auto found = str.find(token);
   if (found == std::string::npos) {
-    std::cerr << "Scan Token Error: Not Found\n";
-    exit(1);
+    throw InterpreterError("Scan Token Error: " + token + " not found.");
   }
   auto res = str.substr(0, found);
   current += res.length();
@@ -251,9 +339,7 @@ TokenInfo Lexer::get_next_token() {
     process_new_line(ignore_str);
     return std::make_tuple(line_num, TokenType::TOKEN_IGNORED, ignore_str);
   }
-
-  std::cerr << "get_next_token(): unexpected symbol " << next_chr << "\n";
-  exit(1);
+  throw InterpreterError("'get_next_token()' unexpected symbol " + std::string(1, next_chr));
 }
 
 TokenInfo Lexer::next_token_is(TokenType guess) {
@@ -264,10 +350,7 @@ TokenInfo Lexer::next_token_is(TokenType guess) {
   auto _next_token_info = get_next_token();
   std::tie(line_num, token_type, token) = _next_token_info;
   if (token_type != guess) {
-    std::cerr << "next_token_is(): syntax error near " << token
-              << ", expecting " << guess << " but got [" << line_num << ", "
-              << token_type << "," << token << "]\n";
-    exit(1);
+    throw InterpreterError("'next_token_is()' syntax error near " + token + ", expecting " + to_string(guess) + " but got [" + std::to_string(line_num) + ", " + to_string(token_type) + ", " + token + "].");
   }
   return _next_token_info;
 }
@@ -292,7 +375,7 @@ Variable parse_variable(Lexer &lexer) {
   std::string name = std::get<std::string>(next_token_info);
 
   parse_ignored(lexer);
-  return std::make_tuple(line_num, name);
+  return std::make_tuple(line_num, std::move(name));
 }
 
 std::string parse_string(Lexer &lexer) {
@@ -307,7 +390,7 @@ std::string parse_string(Lexer &lexer) {
   return str;
 }
 
-std::unique_ptr<Statement> parse_assignment(Lexer &lexer) {
+Statement parse_assignment(Lexer &lexer) {
   auto var = parse_variable(lexer);
   parse_ignored(lexer);
   lexer.next_token_is(TokenType::TOKEN_EQUAL);
@@ -315,12 +398,10 @@ std::unique_ptr<Statement> parse_assignment(Lexer &lexer) {
   auto str = parse_string(lexer);
   parse_ignored(lexer);
 
-  std::unique_ptr<Statement> ptr =
-      std::make_unique<Assignment>(std::get<0>(var), str, var);
-  return ptr;
+  return Assignment{std::get<0>(var), std::move(str), std::move(var)};
 }
 
-std::unique_ptr<Statement> parse_print(Lexer &lexer) {
+Statement parse_print(Lexer &lexer) {
   auto line_num = std::get<0>(lexer.next_token_is(TokenType::TOKEN_PRINT));
   lexer.next_token_is(TokenType::TOKEN_LEFT_PAREN);
   parse_ignored(lexer);
@@ -328,19 +409,17 @@ std::unique_ptr<Statement> parse_print(Lexer &lexer) {
   lexer.next_token_is(TokenType::TOKEN_RIGHT_PAREN);
   parse_ignored(lexer);
 
-  std::unique_ptr<Statement> ptr = std::make_unique<Print>(line_num, variable);
-  return ptr;
+  return Print{line_num, std::move(variable)};
 }
 
-std::unique_ptr<Statement> parse_statement(Lexer &lexer) {
+Statement parse_statement(Lexer &lexer) {
   switch (lexer.look_ahead()) {
   case TokenType::TOKEN_PRINT:
     return parse_print(lexer);
   case TokenType::TOKEN_VAR_PREFIX:
     return parse_assignment(lexer);
   default:
-    std::cerr << "Statement type error.\n";
-    exit(1);
+    throw InterpreterError("Statement type error.");
   }
 }
 
@@ -362,38 +441,44 @@ SourceCode parse(Lexer &lexer) {
 
 // ------------------- Backend ---------------------
 
+// 帮助实现 visitor 模式的工具类
+template<class... Ts> 
+struct overloaded : Ts... { 
+    using Ts::operator()...; 
+};
+template<class... Ts> 
+overloaded(Ts...) -> overloaded<Ts...>;
+
 class Interpreter {
 public:
   Interpreter() = default;
-  Interpreter(const std::string &source_code) : lexer(Lexer(source_code)) {
+  Interpreter(const std::string& source_code) : lexer(Lexer(source_code)) {
     ast = parse(lexer);
   }
 
-  void resolve_print(std::unique_ptr<Statement> p) {
-    Print *ptr = dynamic_cast<Print *>(p.get());
-    auto name = std::get<std::string>(ptr->variable);
+  void execute() {
+    try {
+          for (const auto& stmt : ast.statements) {
+      std::visit(*this, stmt);
+    }
+    }
+    catch (const InterpreterError& e) {
+        std::cerr << "Interpreter Error: " << e.what() << std::endl;
+        std::exit(1);
+    }    catch (const std::exception& e) {
+        std::cerr << "Unexpected error: " << e.what() << std::endl;
+        std::exit(1);
+    }
+  }
+
+  void operator() (const Print& p) {
+    auto name = std::get<std::string>(p.variable);
     std::cout << variables[name];
   }
 
-  void resolve_assigment(std::unique_ptr<Statement> a) {
-    Assignment *ptr = dynamic_cast<Assignment *>(a.get());
-    auto name = std::get<std::string>(ptr->variable);
-    variables[name] = ptr->name;
-  }
-
-  void execute() {
-    for (auto &&elem : ast.statements) {
-      if (elem->id() == 1) {
-        // Assignment
-        resolve_assigment(std::move(elem));
-      } else if (elem->id() == 2) {
-        // Print
-        resolve_print(std::move(elem));
-      } else {
-        std::cerr << "Interpreter ast error.\n";
-        exit(1);
-      }
-    }
+  void operator() (const Assignment& a) {
+    auto name = std::get<std::string> (a.variable);
+    variables[name] = a.name;
   }
 
 private:
@@ -402,21 +487,11 @@ private:
   std::map<std::string, std::string> variables{};
 };
 
-// ------------------- Utils ---------------------
-auto read_file(std::string_view path) -> std::string {
-  constexpr auto read_size = std::size_t(4096);
-  auto stream = std::ifstream(path.data());
-  stream.exceptions(std::ios_base::badbit);
 
-  if (not stream) {
-    throw std::ios_base::failure("file does not exist");
-  }
-
-  auto out = std::string();
-  auto buf = std::string(read_size, '\0');
-  while (stream.read(&buf[0], read_size)) {
-    out.append(buf, 0, stream.gcount());
-  }
-  out.append(buf, 0, stream.gcount());
-  return out;
+inline void run(std::string_view filename) {
+  auto data = read_file(filename);
+  Interpreter(data).execute();
 }
+
+} // namespace PineApple
+#endif // !PINEAPPLE_H_
