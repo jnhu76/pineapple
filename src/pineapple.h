@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -161,7 +162,7 @@ std::string to_string(TokenType token_type) {
   }
 }
 
-std::map<std::string, TokenType> KEYWORDS{{"print", TokenType::TOKEN_PRINT}};
+std::unordered_map<std::string, TokenType> KEYWORDS{{"print", TokenType::TOKEN_PRINT}};
 
 using TokenInfo = std::tuple<std::size_t, TokenType, std::string>;
 
@@ -443,7 +444,7 @@ public:
 private:
   Lexer lexer;
   SourceCode ast;
-  std::map<std::string, std::string> variables{};
+  std::unordered_map<std::string, std::string> variables{};
 };
 
 inline void run(std::string_view filename) {
